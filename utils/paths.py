@@ -6,7 +6,6 @@ from multiprocessing import Pool
 import json
 import random
 import os
-from .conceptnet import merged_relations
 import pickle
 
 __all__ = ['find_paths', 'score_paths', 'prune_paths']
@@ -23,14 +22,14 @@ concept_embs = None
 relation_embs = None
 
 
-def load_resources(cpnet_vocab_path):
+def load_resources(cpnet_vocab_path, cpnet_relations_path):
     global concept2id, id2concept, relation2id, id2relation
 
     with open(cpnet_vocab_path, "r", encoding="utf8") as fin:
         id2concept = [w.strip() for w in fin]
     concept2id = {w: i for i, w in enumerate(id2concept)}
-
-    id2relation = merged_relations
+    with open(cpnet_relations_path, "r", encoding="utf8") as fin:
+        id2relation = [w.strip() for w in fin.read().split('\n')]
     relation2id = {r: i for i, r in enumerate(id2relation)}
 
 
@@ -282,14 +281,15 @@ def find_relational_paths_from_paths_per_inst(path_dic):
 #                     functions below this line will be called by preprocess.py                     #
 #####################################################################################################
 
-def find_paths(grounded_path, cpnet_vocab_path, cpnet_graph_path, output_path, num_processes=1, random_state=0):
+
+def find_paths(grounded_path, cpnet_vocab_path, cpnet_relations_path, cpnet_graph_path, output_path, num_processes=1, random_state=0):
     print(f'generating paths for {grounded_path}...')
     random.seed(random_state)
     np.random.seed(random_state)
 
     global concept2id, id2concept, relation2id, id2relation, cpnet_simple, cpnet
     if any(x is None for x in [concept2id, id2concept, relation2id, id2relation]):
-        load_resources(cpnet_vocab_path)
+        load_resources(cpnet_vocab_path, cpnet_relations_path)
     if cpnet is None or cpnet_simple is None:
         load_cpnet(cpnet_graph_path)
 
@@ -329,11 +329,11 @@ def generate_path_and_graph_from_adj(adj_path, cpnet_graph_path, output_path, gr
 
 
 
-def score_paths(raw_paths_path, concept_emb_path, rel_emb_path, cpnet_vocab_path, output_path, num_processes=1, method='triple_cls'):
+def score_paths(raw_paths_path, concept_emb_path, rel_emb_path, cpnet_vocab_path, cpnet_relations_path, output_path, num_processes=1, method='triple_cls'):
     print(f'scoring paths for {raw_paths_path}...')
     global concept2id, id2concept, relation2id, id2relation
     if any(x is None for x in [concept2id, id2concept, relation2id, id2relation]):
-        load_resources(cpnet_vocab_path)
+        load_resources(cpnet_vocab_path, cpnet_relations_path)
 
     global concept_embs, relation_embs
     if concept_embs is None:

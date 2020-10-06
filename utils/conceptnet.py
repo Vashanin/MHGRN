@@ -11,7 +11,7 @@ try:
 except ImportError:
     from utils import check_file
 
-__all__ = ['extract_english', 'construct_graph', 'merged_relations']
+__all__ = ['extract_english', 'construct_graph']
 
 relation_groups = [
     'atlocation/locatednear',
@@ -31,26 +31,6 @@ relation_groups = [
     'relatedto/similarto/synonym',
     'usedfor',
     'receivesaction',
-]
-
-merged_relations = [
-    'antonym',
-    'atlocation',
-    'capableof',
-    'causes',
-    'createdby',
-    'isa',
-    'desires',
-    'hassubevent',
-    'partof',
-    'hascontext',
-    'hasproperty',
-    'madeof',
-    'notcapableof',
-    'notdesires',
-    'receivesaction',
-    'relatedto',
-    'usedfor',
 ]
 
 relation_text = [
@@ -189,7 +169,7 @@ def construct_graph(cpnet_csv_path, cpnet_vocab_path, cpnet_relations_path, outp
         attrs = set()
 
         for line in tqdm(fin, total=nrow):
-            ls = line.strip().split('\t')
+            ls = [w.strip() for w in line.strip().split('\t')]
             rel = relation2id[ls[0]]
             subj = concept2id[ls[1]]
             obj = concept2id[ls[2]]
@@ -385,7 +365,3 @@ def glove_init(input, output, concept_file):
                              f'{output_dir}/relation.glove.{pooling}.txt')
 
     create_embeddings_glove(dim=dim)
-
-
-if __name__ == "__main__":
-    glove_init("../data/glove/glove.6B.200d.txt", "../data/glove/glove.200d", '../data/glove/tp_str_corpus.json')

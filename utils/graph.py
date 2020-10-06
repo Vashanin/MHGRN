@@ -3,7 +3,6 @@ import networkx as nx
 import itertools
 import json
 from tqdm import tqdm
-from .conceptnet import merged_relations
 import numpy as np
 from scipy import sparse
 import pickle
@@ -23,14 +22,14 @@ cpnet_all = None
 cpnet_simple = None
 
 
-def load_resources(cpnet_vocab_path):
+def load_resources(cpnet_vocab_path, cpnet_relations_path):
     global concept2id, id2concept, relation2id, id2relation
 
     with open(cpnet_vocab_path, "r", encoding="utf8") as fin:
         id2concept = [w.strip() for w in fin]
     concept2id = {w: i for i, w in enumerate(id2concept)}
-
-    id2relation = merged_relations
+    with open(cpnet_relations_path, 'r') as fin:
+        id2relation = [w.strip() for w in fin.read().split('\n')]
     relation2id = {r: i for i, r in enumerate(id2relation)}
 
 
@@ -249,12 +248,12 @@ def concepts_to_adj_matrices_3hop_qa_pair(data):
 #####################################################################################################
 
 
-def generate_graph(grounded_path, pruned_paths_path, cpnet_vocab_path, cpnet_graph_path, output_path):
+def generate_graph(grounded_path, pruned_paths_path, cpnet_vocab_path, cpnet_relations_path, cpnet_graph_path, output_path):
     print(f'generating schema graphs for {grounded_path} and {pruned_paths_path}...')
 
     global concept2id, id2concept, relation2id, id2relation
     if any(x is None for x in [concept2id, id2concept, relation2id, id2relation]):
-        load_resources(cpnet_vocab_path)
+        load_resources(cpnet_vocab_path, cpnet_relations_path)
 
     global cpnet, cpnet_simple
     if cpnet is None or cpnet_simple is None:
@@ -292,12 +291,12 @@ def generate_graph(grounded_path, pruned_paths_path, cpnet_vocab_path, cpnet_gra
     print()
 
 
-def generate_adj_matrices(ori_schema_graph_path, cpnet_graph_path, cpnet_vocab_path, output_path, num_processes, num_rels=34, debug=False):
+def generate_adj_matrices(ori_schema_graph_path, cpnet_graph_path, cpnet_vocab_path, cpnet_relations_path, output_path, num_processes, num_rels=34, debug=False):
     print(f'generating adjacency matrices for {ori_schema_graph_path} and {cpnet_graph_path}...')
 
     global concept2id, id2concept, relation2id, id2relation
     if any(x is None for x in [concept2id, id2concept, relation2id, id2relation]):
-        load_resources(cpnet_vocab_path)
+        load_resources(cpnet_vocab_path, cpnet_relations_path)
 
     global cpnet_all
     if cpnet_all is None:
@@ -319,7 +318,7 @@ def generate_adj_matrices(ori_schema_graph_path, cpnet_graph_path, cpnet_vocab_p
     print()
 
 
-def generate_adj_data_from_grounded_concepts(grounded_path, cpnet_graph_path, cpnet_vocab_path, output_path, num_processes):
+def generate_adj_data_from_grounded_concepts(grounded_path, cpnet_graph_path, cpnet_vocab_path, cpnet_relations_path, output_path, num_processes):
     """
     This function will save
         (1) adjacency matrics (each in the form of a (R*N, N) coo sparse matrix)
@@ -338,7 +337,7 @@ def generate_adj_data_from_grounded_concepts(grounded_path, cpnet_graph_path, cp
 
     global concept2id, id2concept, relation2id, id2relation, cpnet_simple, cpnet
     if any(x is None for x in [concept2id, id2concept, relation2id, id2relation]):
-        load_resources(cpnet_vocab_path)
+        load_resources(cpnet_vocab_path, cpnet_relations_path)
     if cpnet is None or cpnet_simple is None:
         load_cpnet(cpnet_graph_path)
 

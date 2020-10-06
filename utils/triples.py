@@ -8,10 +8,6 @@ from transformers import (BertConfig, BertModel, BertTokenizer,
                           RobertaConfig, RobertaModel, RobertaTokenizer)
 
 try:
-    from .conceptnet import merged_relations
-except ModuleNotFoundError:
-    from conceptnet import merged_relations
-try:
     from .utils import check_path
 except:
     from utils import check_path
@@ -30,21 +26,21 @@ id2relation = None
 templates = None
 
 
-def load_resources(cpnet_vocab_path):
+def load_resources(cpnet_vocab_path, cpnet_relations_path):
     global concept2id, id2concept, relation2id, id2relation
 
     with open(cpnet_vocab_path, "r", encoding="utf8") as fin:
         id2concept = [w.strip() for w in fin]
     concept2id = {w: i for i, w in enumerate(id2concept)}
-
-    id2relation = merged_relations
+    with open(cpnet_relations_path, "r", encoding="utf8") as fin:
+        id2relation = [w.strip() for w in fin.read().strip().split('\n')]
     relation2id = {r: i for i, r in enumerate(id2relation)}
 
 
-def generate_triples_from_adj(adj_pk_path, mentioned_cpt_path, cpnet_vocab_path, triple_path):
+def generate_triples_from_adj(adj_pk_path, mentioned_cpt_path, cpnet_vocab_path, cpnet_relations_path, triple_path):
     global concept2id, id2concept, relation2id, id2relation
     if any(x is None for x in [concept2id, id2concept, relation2id, id2relation]):
-        load_resources(cpnet_vocab_path)
+        load_resources(cpnet_vocab_path, cpnet_relations_path)
 
     with open(mentioned_cpt_path, 'r') as fin:
         data = [json.loads(line) for line in fin]
@@ -132,11 +128,11 @@ def generate_triple_string_per_inst(triples):
     return res
 
 
-def generate_triple_string(str_template_path, cpnet_vocab_path, triple_path, output_path, num_processes=1):
+def generate_triple_string(str_template_path, cpnet_vocab_path, cpnet_relations_path, triple_path, output_path, num_processes=1):
     global concept2id, id2concept, relation2id, id2relation, template
 
     if any(x is None for x in [concept2id, id2concept, relation2id, id2relation]):
-        load_resources(cpnet_vocab_path)
+        load_resources(cpnet_vocab_path, cpnet_relations_path)
     if template is None:
         load_templates(str_template_path=str_template_path)
     with open(triple_path, 'rb') as fin:

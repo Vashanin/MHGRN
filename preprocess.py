@@ -2,10 +2,6 @@ import os
 import argparse
 from multiprocessing import cpu_count
 from utils.convert_csqa import convert_to_entailment
-from utils.convert_scitail import convert_to_scitail_statement
-from utils.convert_phys import convert_to_phys_statement
-from utils.convert_socialiqa import convert_to_socialiqa_statement
-from utils.convert_obqa import convert_to_obqa_statement
 from utils.tokenization_utils import tokenize_statement_file, make_word_vocab
 from utils.conceptnet import extract_english, construct_graph
 from utils.embedding import glove2npy, load_pretrained_embeddings
@@ -47,15 +43,15 @@ output_paths = {
         'vocab': './data/glove/glove.vocab',
     },
     'numberbatch': {
-        'npy': './data/transe/nb.npy',
-        'vocab': './data/transe/nb.vocab',
-        'concept_npy': './data/transe/concept.nb.npy'
+        'npy': './data/numberbatch/nb.npy',
+        'vocab': './data/numberbatch/nb.vocab',
+        'concept_npy': './data/numberbatch/concept.nb.npy'
     },
     'dataset': {
         'statement': {
-            'train': './data/{dataset}/statement/train.statement.jsonl',
-            'dev': './data/{dataset}/statement/dev.statement.jsonl',
-            'test': './data/{dataset}/statement/test.statement.jsonl',
+            'train': './data/{dataset}/statement/train.statement.demo.jsonl',
+            'dev': './data/{dataset}/statement/dev.statement.demo.jsonl',
+            'test': './data/{dataset}/statement/test.statement.demo.jsonl',
             'vocab': './data/{dataset}/statement/vocab.json',
         },
         'statement-with-ans-pos': {
@@ -142,32 +138,32 @@ def main():
             #           output_paths['graph']['vocab'].format(graph=args.graph),
             #           False,
             #           output_paths['numberbatch']['concept_npy'])},
-            {'func': construct_graph,
-             'args': (output_paths['graph']['csv'].format(graph=args.graph),
-                      output_paths['graph']['vocab'].format(graph=args.graph),
-                      output_paths['graph']['relations'].format(graph=args.graph),
-                      output_paths['graph']['unpruned-graph'].format(graph=args.graph),
-                      False)},
-            {'func': construct_graph,
-             'args': (output_paths['graph']['csv'].format(graph=args.graph),
-                      output_paths['graph']['vocab'].format(graph=args.graph),
-                      output_paths['graph']['relations'].format(graph=args.graph),
-                      output_paths['graph']['pruned-graph'].format(graph=args.graph),
-                      True)},
-            {'func': create_matcher_patterns,
-             'args': (output_paths['graph']['vocab'].format(graph=args.graph),
-                      output_paths['graph']['patterns'].format(graph=args.graph))},
+            # {'func': construct_graph,
+            #  'args': (output_paths['graph']['csv'].format(graph=args.graph),
+            #           output_paths['graph']['vocab'].format(graph=args.graph),
+            #           output_paths['graph']['relations'].format(graph=args.graph),
+            #           output_paths['graph']['unpruned-graph'].format(graph=args.graph),
+            #           False)},
+            # {'func': construct_graph,
+            #  'args': (output_paths['graph']['csv'].format(graph=args.graph),
+            #           output_paths['graph']['vocab'].format(graph=args.graph),
+            #           output_paths['graph']['relations'].format(graph=args.graph),
+            #           output_paths['graph']['pruned-graph'].format(graph=args.graph),
+            #           True)},
+            # {'func': create_matcher_patterns,
+            #  'args': (output_paths['graph']['vocab'].format(graph=args.graph),
+            #           output_paths['graph']['patterns'].format(graph=args.graph))},
         ],
         'dataset': [
-            {'func': convert_to_entailment,
-             'args': (input_paths['dataset']['train'].format(dataset=args.dataset),
-                      output_paths['dataset']['statement']['train'].format(dataset=args.dataset))},
-            {'func': convert_to_entailment,
-             'args': (input_paths['dataset']['dev'].format(dataset=args.dataset),
-                      output_paths['dataset']['statement']['dev'].format(dataset=args.dataset))},
-            {'func': convert_to_entailment,
-             'args': (input_paths['dataset']['test'].format(dataset=args.dataset),
-                      output_paths['dataset']['statement']['test'].format(dataset=args.dataset))},
+            # {'func': convert_to_entailment,
+            #  'args': (input_paths['dataset']['train'].format(dataset=args.dataset),
+            #           output_paths['dataset']['statement']['train'].format(dataset=args.dataset))},
+            # {'func': convert_to_entailment,
+            #  'args': (input_paths['dataset']['dev'].format(dataset=args.dataset),
+            #           output_paths['dataset']['statement']['dev'].format(dataset=args.dataset))},
+            # {'func': convert_to_entailment,
+            #  'args': (input_paths['dataset']['test'].format(dataset=args.dataset),
+            #           output_paths['dataset']['statement']['test'].format(dataset=args.dataset))},
 
             # {'func': tokenize_statement_file,
             #  'args': (output_paths[args.dataset]['statement']['train'],
@@ -300,6 +296,7 @@ def main():
              'args': (output_paths['dataset']['grounded']['train'].format(dataset=args.dataset),
                       output_paths['graph']['pruned-graph'].format(graph=args.graph),
                       output_paths['graph']['vocab'].format(graph=args.graph),
+                      output_paths['graph']['relations'].format(graph=args.graph),
                       # для кожної пари питання-відповідь, надається матриця суміжності, масив концептів, маска
                       # концептів з питання та маска концептів з відповіді
                       output_paths['dataset']['graph']['adj-train'].format(dataset=args.dataset),
@@ -308,12 +305,14 @@ def main():
              'args': (output_paths['dataset']['grounded']['dev'].format(dataset=args.dataset),
                       output_paths['graph']['pruned-graph'].format(graph=args.graph),
                       output_paths['graph']['vocab'].format(graph=args.graph),
+                      output_paths['graph']['relations'].format(graph=args.graph),
                       output_paths['dataset']['graph']['adj-dev'].format(dataset=args.dataset),
                       args.nprocs)},
             {'func': generate_adj_data_from_grounded_concepts,
              'args': (output_paths['dataset']['grounded']['test'].format(dataset=args.dataset),
                       output_paths['graph']['pruned-graph'].format(graph=args.graph),
                       output_paths['graph']['vocab'].format(graph=args.graph),
+                      output_paths['graph']['relations'].format(graph=args.graph),
                       output_paths['dataset']['graph']['adj-test'].format(dataset=args.dataset),
                       args.nprocs)},
 
@@ -327,16 +326,19 @@ def main():
              'args': (output_paths['dataset']['graph']['adj-train'].format(dataset=args.dataset),
                       output_paths['dataset']['grounded']['train'].format(dataset=args.dataset),
                       output_paths['graph']['vocab'].format(graph=args.graph),
+                      output_paths['graph']['relations'].format(graph=args.graph),
                       output_paths['dataset']['triple']['train'].format(dataset=args.dataset))},
             {'func': generate_triples_from_adj,
              'args': (output_paths['dataset']['graph']['adj-dev'].format(dataset=args.dataset),
                       output_paths['dataset']['grounded']['dev'].format(dataset=args.dataset),
                       output_paths['graph']['vocab'].format(graph=args.graph),
+                      output_paths['graph']['relations'].format(graph=args.graph),
                       output_paths['dataset']['triple']['dev'].format(dataset=args.dataset))},
             {'func': generate_triples_from_adj,
              'args': (output_paths['dataset']['graph']['adj-test'].format(dataset=args.dataset),
                       output_paths['dataset']['grounded']['test'].format(dataset=args.dataset),
                       output_paths['graph']['vocab'].format(graph=args.graph),
+                      output_paths['graph']['relations'].format(graph=args.graph),
                       output_paths['dataset']['triple']['test'].format(dataset=args.dataset))},
 
             {'func': generate_path_and_graph_from_adj,

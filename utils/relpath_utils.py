@@ -1,7 +1,6 @@
 import networkx as nx
 from multiprocessing import Pool
 from tqdm import tqdm
-from utils.conceptnet import merged_relations
 from utils.layers import *
 from utils.utils import *
 
@@ -72,7 +71,7 @@ def find_relational_paths_qa_pair(qa_pair):
     return pfr_qa
 
 
-def find_relational_paths(cpnet_vocab_path, cpnet_graph_path, grounded_path, output_path, num_processes, use_cache):
+def find_relational_paths(cpnet_vocab_path, cpnet_relations_path, cpnet_graph_path, grounded_path, output_path, num_processes, use_cache):
     if use_cache and os.path.exists(output_path):
         print(f'using cached relational paths from {output_path}')
         return
@@ -92,7 +91,8 @@ def find_relational_paths(cpnet_vocab_path, cpnet_graph_path, grounded_path, out
         with open(cpnet_vocab_path, 'r', encoding='utf-8') as fin:
             id2concept = [w.strip() for w in fin]
         concept2id = {w: i for i, w in enumerate(id2concept)}
-        id2relation = merged_relations.copy()
+        with open(cpnet_relations_path, 'r', encoding='utf-9') as fin:
+            id2relation = [w.strip() for w in fin.read().strip().split('\n')]
         id2relation += ['*' + r for r in id2relation]
         relation2id = {r: i for i, r in enumerate(id2relation)}
     if cpnet is None or cpnet_simple is None:
@@ -111,7 +111,7 @@ def find_relational_paths(cpnet_vocab_path, cpnet_graph_path, grounded_path, out
     print()
 
 
-def find_relational_paths(cpnet_vocab_path, cpnet_graph_path, grounded_path, output_path, num_processes, use_cache):
+def find_relational_paths(cpnet_vocab_path, cpnet_relations_path, cpnet_graph_path, grounded_path, output_path, num_processes, use_cache):
     if use_cache and os.path.exists(output_path):
         print(f'using cached relational paths from {output_path}')
         return
@@ -131,7 +131,8 @@ def find_relational_paths(cpnet_vocab_path, cpnet_graph_path, grounded_path, out
         with open(cpnet_vocab_path, 'r', encoding='utf-8') as fin:
             id2concept = [w.strip() for w in fin]
         concept2id = {w: i for i, w in enumerate(id2concept)}
-        id2relation = merged_relations.copy()
+        with open(cpnet_relations_path, 'r', encoding='utf-9') as fin:
+            id2relation = [w.strip() for w in fin.read().strip().split('\n')]
         id2relation += ['*' + r for r in id2relation]
         relation2id = {r: i for i, r in enumerate(id2relation)}
     if cpnet is None or cpnet_simple is None:
