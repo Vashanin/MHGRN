@@ -416,10 +416,14 @@ def load_adj_data(adj_pk_path, max_node_num, num_choice, emb_pk_path=None):
         i, j, k = torch.cat((i, i + half_n_rel), 0), torch.cat((j, k), 0), torch.cat((k, j), 0)  # add inverse relations
         adj_data.append((i, j, k))  # i, j, k are the coordinates of adj's non-zero entries
 
-    print('| ori_adj_len: {:.2f} | adj_len: {:.2f} |'.format(adj_lengths_ori.float().mean().item(), adj_lengths.float().mean().item()) +
-          ' prune_rate： {:.2f} |'.format((adj_lengths_ori > adj_lengths).float().mean().item()) +
-          ' qc_num: {:.2f} | ac_num: {:.2f} |'.format((node_type_ids == 0).float().sum(1).mean().item(),
-                                                      (node_type_ids == 1).float().sum(1).mean().item()))
+    try:
+        print('| ori_adj_len: {:.2f} | adj_len: {:.2f} |'.format(adj_lengths_ori.float().mean().item(),
+                                                                 adj_lengths.float().mean().item()) +
+              ' prune_rate： {:.2f} |'.format((adj_lengths_ori > adj_lengths).float().mean().item()) +
+              ' qc_num: {:.2f} | ac_num: {:.2f} |'.format((node_type_ids == 0).float().sum(1).mean().item(),
+                                                          (node_type_ids == 1).float().sum(1).mean().item()))
+    except Exception:
+        pass
 
     concept_ids, node_type_ids, adj_lengths = [x.view(-1, num_choice, *x.size()[1:]) for x in (concept_ids, node_type_ids, adj_lengths)]
     if emb_pk_path is not None:
@@ -571,6 +575,8 @@ def load_bert_xlnet_roberta_input_tensors(statement_jsonl_path, model_type, mode
             `cls_token_segment_id` define the segment id associated to the CLS token (0 for BERT, 2 for XLNet)
         """
         label_map = {label: i for i, label in enumerate(label_list)}
+        if len(label_map) == 1:
+            label_map = {i: i for i in range(3)}
 
         features = []
         for ex_index, example in enumerate(examples):

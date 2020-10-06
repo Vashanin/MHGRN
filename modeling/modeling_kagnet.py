@@ -1,3 +1,4 @@
+import dgl
 import dgl.function as fn
 import networkx as nx
 import torch.utils.data as data
@@ -276,12 +277,15 @@ class KnowledgeAwareGraphNetwork(nn.Module):
 
         n_qa_pairs = [len(t) for t in qa_pairs_batched]
         total_qa_pairs = sum(n_qa_pairs)
-        s_vec_expanded = s_vec_batched.new_zeros((total_qa_pairs, s_vec_batched.size(1)))
+        s_vec_expanded = s_vec_batched.new_zeros((total_qa_pairs, s_vec_batched.size(-1)))
         i = 0
         for n, s_vec in zip(n_qa_pairs, s_vec_batched):
             j = i + n
             s_vec_expanded[i:j] = s_vec
             i = j
+
+        qa_pairs_batched = [v for w in qa_pairs_batched for v in w]
+
         qa_ids_batched = torch.cat(qa_pairs_batched, 0)  # N x 2
         qa_vecs = self.concept_emd(qa_ids_batched).view(total_qa_pairs, -1)
         new_qa_ids = []
@@ -290,12 +294,14 @@ class KnowledgeAwareGraphNetwork(nn.Module):
             new_qa_ids += [[id_mapping(q), id_mapping(a)] for q, a in qa_ids]
         new_qa_ids = torch.tensor(new_qa_ids, device=s_vec_batched.device)
         new_qa_vecs = new_concept_embed[new_qa_ids].view(total_qa_pairs, -1)
+
         raw_qas_vecs = torch.cat((qa_vecs, new_qa_vecs, s_vec_expanded), dim=1)  # all the qas triple vectors associated with a statement
         qas_vecs_batched = self.qas_encoder(raw_qas_vecs)
         if self.path_attention:
             query_vecs_batched = self.qas_pathlstm_att(qas_vecs_batched)
         flat_cpt_paths_batched = torch.cat(cpt_paths_batched, 0)
         mdicted_cpaths = []
+
         for cpt_path in flat_cpt_paths_batched:
             mdicted_cpaths.append([id_mapping(c) for c in cpt_path])
         mdicted_cpaths = torch.tensor(mdicted_cpaths, device=s_vec_batched.device)
@@ -324,8 +330,12 @@ class KnowledgeAwareGraphNetwork(nn.Module):
         qa_pair_cur_start = 0
         path_cur_start = 0
         # for each question-answer statement
-        for s_vec, qa_ids, cpt_paths, rel_paths, mdict, qa_path_num, path_len in zip(s_vec_batched, qa_pairs_batched, cpt_paths_batched,
-                                                                                     rel_paths_batched, concept_mapping_dicts, qa_path_num_batched,
+        for s_vec, qa_ids, cpt_paths, rel_paths, mdict, qa_path_num, path_len in zip(s_vec_batched,
+                                                                                     qa_pairs_batched,
+                                                                                     cpt_paths_batched,
+                                                                                     rel_paths_batched,
+                                                                                     concept_mapping_dicts,
+                                                                                     qa_path_num_batched,
                                                                                      path_len_batched):  # len = batch_size * num_choices
 
             n_qa_pairs = qa_ids.size(0)
@@ -409,23 +419,38 @@ class LMKagNet(nn.Module):
         returns: (batch_size, 1)
         """
         bs, nc = inputs[0].size(0), inputs[0].size(1)
-        inputs = [x.view(x.size(0) * x.size(1), *x.size()[2:]) for x in inputs[:-7]] + inputs[-7:]  # merge the batch dimension and the num_choice dimension
-        print(len(inputs))
+        inputs = tuple([x.view(x.size(0) * x.size(1), *x.size()[2:]) for x in inputs[:4]]) + inputs[4:]  # merge the batch dimension and the num_choice dimension
+
         *lm_inputs, qa_pair_data, cpt_path_data, rel_path_data, qa_path_num_data, path_len_data, batched_graph, concept_mapping_dicts = inputs
-        print([len(x[0]) for x in [qa_pair_data, cpt_path_data, rel_path_data, qa_path_num_data, path_len_data, batched_graph, concept_mapping_dicts]])
-        print([x.device for x in [qa_pair_data, cpt_path_data, rel_path_data, qa_path_num_data, path_len_data, batched_graph, concept_mapping_dicts]])
+
         sent_vecs, all_hidden_states = self.encoder(*lm_inputs, layer_id=layer_id)
-        logits, attn = self.decoder(sent_vecs.view(bs, nc, -1).to(qa_pair_data.device), qa_pair_data, cpt_path_data, rel_path_data, qa_path_num_data, path_len_data, batched_graph, concept_mapping_dicts)
+        logits, attn = self.decoder(sent_vecs.view(bs, nc, -1), qa_pair_data, cpt_path_data, rel_path_data, qa_path_num_data, path_len_data, batched_graph, concept_mapping_dicts)
         logits = logits.view(bs, nc)
+
         return logits, attn
 
 
 class KagNetDataLoader(data.Dataset):
 
-    def __init__(self, train_statement_path: str, train_path_jsonl: str, train_ngx_jsonl: str, dev_statement_path: str,
-                 dev_path_jsonl: str, dev_ngx_jsonl: str, test_statement_path: str, test_path_jsonl: str, test_ngx_jsonl: str,
-                 batch_size, eval_batch_size, device, max_path_len=5, max_seq_length=128, model_name=None,
-                 is_inhouse=True, inhouse_train_qids_path=None, use_cache=True, format=[]):
+    def __init__(self,
+                 train_statement_path: str,
+                 train_path_jsonl: str,
+                 train_ngx_jsonl: str,
+                 dev_statement_path: str,
+                 dev_path_jsonl: str,
+                 dev_ngx_jsonl: str,
+                 test_statement_path: str,
+                 test_path_jsonl: str,
+                 test_ngx_jsonl: str,
+                 batch_size,
+                 eval_batch_size, device,
+                 max_path_len=5,
+                 max_seq_length=128,
+                 model_name=None,
+                 is_inhouse=True,
+                 inhouse_train_qids_path=None,
+                 use_cache=True,
+                 format=[]):
         super(KagNetDataLoader, self).__init__()
         self.batch_size = batch_size
         self.eval_batch_size = eval_batch_size
@@ -519,7 +544,7 @@ class KagNetDataLoader(data.Dataset):
         qa_path_num_data = list(map(list, zip(*(iter(qa_path_num_data),) * self.num_choice)))
         path_len_data = list(map(list, zip(*(iter(path_len_data),) * self.num_choice)))
 
-        print([x[0].size() for x in [qa_pair_data, cpt_path_data, rel_path_data, qa_path_num_data, path_len_data]])
+        print([x[0][0].size() for x in [qa_pair_data, cpt_path_data, rel_path_data, qa_path_num_data, path_len_data]])
 
         with open(save_file, 'wb') as fout:
             pickle.dump([qa_pair_data, cpt_path_data, rel_path_data, qa_path_num_data, path_len_data], fout)

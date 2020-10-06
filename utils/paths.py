@@ -105,18 +105,6 @@ def find_paths_qa_concept_pair(source: str, target: str, ifprint=False):
 
             rel_list = get_edge(src_concept, tgt_concept)
             rl.append(rel_list)
-            if ifprint:
-                rel_list_str = []
-                for rel in rel_list:
-                    if rel < len(id2relation):
-                        rel_list_str.append(id2relation[rel])
-                    else:
-                        rel_list_str.append(id2relation[rel - len(id2relation)] + "*")
-                print(id2concept[src_concept], "----[%s]---> " % ("/".join(rel_list_str)), end="")
-                if src + 1 == len(p) - 1:
-                    print(id2concept[tgt_concept], end="")
-        if ifprint:
-            print()
 
         pf_res.append({"path": p, "rel": rl})
     return pf_res

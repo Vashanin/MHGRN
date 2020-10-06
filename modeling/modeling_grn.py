@@ -511,12 +511,14 @@ class GraphRelationNet(nn.Module):
                  n_concept, n_relation, concept_dim, concept_in_dim, n_attention_head,
                  fc_dim, n_fc_layer, att_dim, att_layer_num, p_emb, p_gnn, p_fc,
                  pretrained_concept_emb=None, freeze_ent_emb=True, ablation=None,
-                 init_range=0.02, eps=1e-20, use_contextualized=False, do_init_rn=False, do_init_identity=False):
+                 init_range=0.02, eps=1e-20, use_contextualized=False, do_init_rn=False, do_init_identity=False,
+                 output_size=1, ignore_graph=False):
         super().__init__()
         self.ablation = ablation
         self.init_range = init_range
         self.do_init_rn = do_init_rn
         self.do_init_identity = do_init_identity
+        self.ignore_graph = ignore_graph
 
         n_head = 1 if 'no_rel' in self.ablation else n_relation
 
@@ -537,7 +539,12 @@ class GraphRelationNet(nn.Module):
         else:
             self.pooler = MultiheadAttPoolLayer(n_attention_head, sent_dim, concept_dim)
 
-        self.fc = MLP(concept_dim + sent_dim, fc_dim, 1, n_fc_layer, p_fc, layer_norm=True)
+        self.fc = MLP((concept_dim if not ignore_graph else 0) + sent_dim,
+                      fc_dim,
+                      output_size,
+                      n_fc_layer,
+                      p_fc,
+                      layer_norm=True)
 
         self.dropout_e = nn.Dropout(p_emb)
         self.dropout_fc = nn.Dropout(p_fc)
@@ -610,41 +617,47 @@ class GraphRelationNet(nn.Module):
 
         returns: (batch_size, 1)
         """
-        gnn_input = self.dropout_e(self.concept_emb(concept_ids, emb_data))
-        if 'no_ent' in self.ablation:
-            gnn_input[:] = 1.0
-        if 'no_rel' in self.ablation:
-            adj = adj.sum(1, keepdim=True)
-        gnn_output = self.gnn(sent_vecs, gnn_input, adj, node_type_ids, cache_output=cache_output)
 
-        mask = torch.arange(concept_ids.size(1), device=adj.device) >= adj_lengths.unsqueeze(1)
-        if 'pool_qc' in self.ablation:
-            mask = mask | (node_type_ids != 0)
-        elif 'pool_all' in self.ablation:
-            mask = mask
-        else:  # default is to perform pooling over all the answer concepts (pool_ac)
-            mask = mask | (node_type_ids != 1)
-        mask[mask.all(1), 0] = 0  # a temporary solution to avoid zero node
+        if not self.ignore_graph:
+            gnn_input = self.dropout_e(self.concept_emb(concept_ids, emb_data))
+            if 'no_ent' in self.ablation:
+                gnn_input[:] = 1.0
+            if 'no_rel' in self.ablation:
+                adj = adj.sum(1, keepdim=True)
+            gnn_output = self.gnn(sent_vecs, gnn_input, adj, node_type_ids, cache_output=cache_output)
 
-        if 'early_trans' in self.ablation:
-            gnn_output = self.typed_transform(gnn_output, type_ids=node_type_ids)
+            mask = torch.arange(concept_ids.size(1), device=adj.device) >= adj_lengths.unsqueeze(1)
+            if 'pool_qc' in self.ablation:
+                mask = mask | (node_type_ids != 0)
+            elif 'pool_all' in self.ablation:
+                mask = mask
+            else:  # default is to perform pooling over all the answer concepts (pool_ac)
+                mask = mask | (node_type_ids != 1)
+            mask[mask.all(1), 0] = 0  # a temporary solution to avoid zero node
 
-        if 'detach_s_pool' in self.ablation:
-            sent_vecs_for_pooler = sent_vecs.detach()
+            if 'early_trans' in self.ablation:
+                gnn_output = self.typed_transform(gnn_output, type_ids=node_type_ids)
+
+            if 'detach_s_pool' in self.ablation:
+                sent_vecs_for_pooler = sent_vecs.detach()
+            else:
+                sent_vecs_for_pooler = sent_vecs
+
+            if 'typed_pool' in self.ablation and 'early_trans' not in self.ablation:
+                graph_vecs, pool_attn = self.pooler(sent_vecs_for_pooler, gnn_output, mask, type_ids=node_type_ids)
+            else:
+                graph_vecs, pool_attn = self.pooler(sent_vecs_for_pooler, gnn_output, mask)
+
+            if cache_output:  # cache for decoding
+                self.concept_ids = concept_ids
+                self.adj = adj
+                self.pool_attn = pool_attn
+
+            concat = self.dropout_fc(torch.cat((graph_vecs, sent_vecs), 1))
         else:
-            sent_vecs_for_pooler = sent_vecs
+            concat = self.dropout_fc(sent_vecs)
+            pool_attn = None
 
-        if 'typed_pool' in self.ablation and 'early_trans' not in self.ablation:
-            graph_vecs, pool_attn = self.pooler(sent_vecs_for_pooler, gnn_output, mask, type_ids=node_type_ids)
-        else:
-            graph_vecs, pool_attn = self.pooler(sent_vecs_for_pooler, gnn_output, mask)
-
-        if cache_output:  # cache for decoding
-            self.concept_ids = concept_ids
-            self.adj = adj
-            self.pool_attn = pool_attn
-
-        concat = self.dropout_fc(torch.cat((graph_vecs, sent_vecs), 1))
         logits = self.fc(concat)
         return logits, pool_attn
 
@@ -655,17 +668,24 @@ class LMGraphRelationNet(nn.Module):
                  fc_dim, n_fc_layer, att_dim, att_layer_num, p_emb, p_gnn, p_fc,
                  pretrained_concept_emb=None, freeze_ent_emb=True, ablation=None,
                  init_range=0.0, eps=1e-20, use_contextualized=False,
-                 do_init_rn=False, do_init_identity=False, encoder_config={}):
+                 do_init_rn=False, do_init_identity=False, encoder_config={}, output_size=1, ignore_graph=False):
         super().__init__()
+
         self.ablation = ablation
         self.use_contextualized = use_contextualized
         self.encoder = TextEncoder(model_name, **encoder_config)
         self.decoder = GraphRelationNet(k, n_type, n_basis, n_layer, self.encoder.sent_dim, diag_decompose,
                                         n_concept, n_relation, concept_dim, concept_in_dim, n_attention_head,
                                         fc_dim, n_fc_layer, att_dim, att_layer_num, p_emb, p_gnn, p_fc,
-                                        pretrained_concept_emb=pretrained_concept_emb, freeze_ent_emb=freeze_ent_emb,
-                                        ablation=ablation, init_range=init_range, eps=eps, use_contextualized=use_contextualized,
-                                        do_init_rn=do_init_rn, do_init_identity=do_init_identity)
+                                        pretrained_concept_emb=pretrained_concept_emb,
+                                        freeze_ent_emb=freeze_ent_emb,
+                                        ablation=ablation,
+                                        init_range=init_range, eps=eps,
+                                        use_contextualized=use_contextualized,
+                                        do_init_rn=do_init_rn,
+                                        do_init_identity=do_init_identity,
+                                        output_size=output_size,
+                                        ignore_graph=ignore_graph)
 
     def decode(self, *inputs, layer_id=-1):
         bs, nc = inputs[0].size(0), inputs[0].size(1)
@@ -699,7 +719,7 @@ class LMGraphRelationNet(nn.Module):
             sent_vecs = torch.ones((bs * nc, self.encoder.sent_dim), dtype=torch.float)
         logits, attn = self.decoder(sent_vecs.to(concept_ids.device), concept_ids, node_type_ids, adj_lengths, adj,
                                     emb_data=emb_data, cache_output=cache_output)
-        logits = logits.view(bs, nc)
+        logits = logits.view(bs, -1)
         return logits, attn
 
 

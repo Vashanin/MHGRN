@@ -153,7 +153,7 @@ def extract_english(conceptnet_path, output_csv_path, output_vocab_path):
     print()
 
 
-def construct_graph(cpnet_csv_path, cpnet_vocab_path, output_path, prune=True):
+def construct_graph(cpnet_csv_path, cpnet_vocab_path, cpnet_relations_path, output_path, prune=True):
     print('generating ConceptNet graph file...')
 
     nltk.download('stopwords', quiet=True)
@@ -169,7 +169,8 @@ def construct_graph(cpnet_csv_path, cpnet_vocab_path, output_path, prune=True):
         id2concept = [w.strip() for w in fin]
     concept2id = {w: i for i, w in enumerate(id2concept)}
 
-    id2relation = merged_relations
+    id2relation = [v.strip() for v in open(cpnet_relations_path).read().strip().split('\n')]
+
     relation2id = {r: i for i, r in enumerate(id2relation)}
 
     graph = nx.MultiDiGraph()

@@ -9,6 +9,13 @@ ENCODER_DEFAULT_LR = {
         'bert-large-uncased': 2e-5,
         'roberta-large': 1e-5,
     },
+    'mnli': {
+        'lstm': 3e-4,
+        'openai-gpt': 1e-4,
+        'bert-base-uncased': 3e-5,
+        'bert-large-uncased': 2e-5,
+        'roberta-large': 1e-5,
+    },
     'obqa': {
         'lstm': 3e-4,
         'openai-gpt': 3e-5,
@@ -22,6 +29,7 @@ DATASET_LIST = ['csqa', 'obqa', 'socialiqa']
 
 DATASET_SETTING = {
     'csqa': 'inhouse',
+    'mnli': 'inhouse',
     'obqa': 'official',
     'socialiqa': 'official',
 }
@@ -42,7 +50,7 @@ def add_data_arguments(parser):
     parser.add_argument('--ent_emb_paths', default=['./data/transe/glove.transe.sgd.ent.npy'], nargs='+', help='paths to entity embedding file(s)')
     parser.add_argument('--rel_emb_path', default='./data/transe/glove.transe.sgd.rel.npy', help='paths to relation embedding file')
     # dataset specific
-    parser.add_argument('-ds', '--dataset', default='csqa', choices=DATASET_LIST, help='dataset name')
+    parser.add_argument('-ds', '--dataset', default='csqa', help='dataset name')
     parser.add_argument('-ih', '--inhouse', default=True, type=bool_flag, nargs='?', const=True, help='run in-house setting')
     parser.add_argument('--inhouse_train_qids', default='./data/{dataset}/inhouse_split_qids.txt', help='qids of the in-house training set')
     # statements
@@ -93,12 +101,13 @@ def add_optimization_arguments(parser):
     parser.add_argument('--max_grad_norm', default=1.0, type=float, help='max grad norm (0 to disable)')
     parser.add_argument('--weight_decay', default=1e-2, type=float, help='l2 weight decay strength')
     parser.add_argument('--n_epochs', default=100, type=int, help='total number of training epochs to perform.')
-    parser.add_argument('-me', '--max_epochs_before_stop', default=2, type=int, help='stop training if dev does not increase for N epochs')
+    parser.add_argument('-me', '--max_epochs_before_stop', default=20, type=int, help='stop training if dev does not increase for N epochs')
 
 
 def add_additional_arguments(parser):
     parser.add_argument('--log_interval', default=20, type=int)
     parser.add_argument('--cuda', default=True, type=bool_flag, nargs='?', const=True, help='use GPU')
+    parser.add_argument('--devices', default="", type=str, help="GPU devices to use")
     parser.add_argument('--seed', default=0, type=int, help='random seed')
     parser.add_argument('--debug', default=False, type=bool_flag, nargs='?', const=True, help='run in debug mode')
     args, _ = parser.parse_known_args()

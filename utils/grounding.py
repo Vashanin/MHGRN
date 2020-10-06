@@ -236,7 +236,9 @@ def hard_ground(nlp, sent, cpnet_vocab):
 def match_mentioned_concepts(sents, answers, num_processes):
     res = []
     with Pool(num_processes) as p:
-        res = list(tqdm(p.imap(ground_qa_pair, zip(sents, answers)), total=len(sents)))
+        res = list(tqdm(p.imap(ground_qa_pair, zip(sents, answers)),
+                        total=len(sents),
+                        desc="matching mentioned concepts:"))
     return res
 
 
@@ -247,7 +249,7 @@ def prune(data, cpnet_vocab_path):
         cpnet_vocab = [l.strip() for l in fin]
 
     prune_data = []
-    for item in tqdm(data):
+    for item in tqdm(data, desc="pruning:"):
         qc = item["qc"]
         prune_qc = []
         for c in qc:

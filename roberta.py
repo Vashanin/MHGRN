@@ -24,7 +24,14 @@ def evaluate_accuracy(eval_set, model):
     model.eval()
     with torch.no_grad():
         for qids, labels, *input_data in eval_set:
-            logits, _ = model(*input_data)
+            inputs = [x.view(x.size(0) * x.size(1), *x.size()[2:]) for x in input_data]
+
+            *lm_inputs, concept_ids, node_type_ids, adj_lengths, adj = inputs
+
+            sent_vecs, _ = model.encoder(*lm_inputs, layer_id=-1)
+            concat = model.decoder.dropout_fc(sent_vecs.to(concept_ids.device))
+            logits = model.decoder.fc(concat)
+
             n_correct += (logits.argmax(1) == labels).sum().item()
             n_samples += labels.size(0)
     return n_correct / n_samples
@@ -72,7 +79,6 @@ def main():
     parser.add_argument('--simple', default=False, type=bool_flag, nargs='?', const=True)
     parser.add_argument('--subsample', default=1.0, type=float)
     parser.add_argument('--fix_trans', default=False, type=bool_flag, nargs='?', const=True)
-    parser.add_argument('--ignore_graph', default=False, type=bool_flag)
 
     # regularization
     parser.add_argument('--dropouti', type=float, default=0.1, help='dropout for embedding layer')
@@ -93,12 +99,6 @@ def main():
 
     if args.mode == 'train':
         train(args)
-    elif args.mode == 'eval':
-        eval(args)
-    elif args.mode == 'pred':
-        pred(args)
-    elif args.mode == 'decode':
-        decode(args)
     else:
         raise ValueError('Invalid mode')
 
@@ -197,7 +197,7 @@ def train(args):
         do_init_identity=args.init_identity,
         encoder_config=lstm_config,
         output_size=(3 if args.dataset == 'mnli' else 1),
-        ignore_graph=args.ignore_graph
+        ignore_graph=True
     )
 
     model.encoder.to(device0)
@@ -241,10 +241,9 @@ def train(args):
     best_dev_acc, final_test_acc, total_loss = 0.0, 0.0, 0.0
 
     model.train()
-    freeze_net(model.encoder)
 
-    log_dir = f'./logs/model=grn,' \
-              f'ignore_graph={args.ignore_graph},' \
+    log_dir = f'./logs/' \
+              f'model=roberta,' \
               f'dataset={args.dataset},' \
               f'batch_size={args.batch_size},' \
               f'datetime={np.datetime64("now", "s")}'
@@ -253,17 +252,19 @@ def train(args):
         for epoch_id in range(args.n_epochs):
             num_batches = dataset.train_size() // args.batch_size
             with tqdm(total=num_batches, desc=f'Epoch {epoch_id:>3}/{args.n_epochs}') as bar:
-                if epoch_id == args.unfreeze_epoch:
-                    unfreeze_net(model.encoder)
-                if epoch_id == args.refreeze_epoch:
-                    freeze_net(model.encoder)
-
                 model.train()
 
                 for qids, labels, *input_data in dataset.train():
                     optimizer.zero_grad()
 
-                    logits, _ = model(*input_data, layer_id=args.encoder_layer)
+                    inputs = [x.view(x.size(0) * x.size(1), *x.size()[2:]) for x in input_data]
+
+                    *lm_inputs, concept_ids, node_type_ids, adj_lengths, adj = inputs
+
+                    sent_vecs, _ = model.encoder(*lm_inputs, layer_id=args.encoder_layer)
+                    concat = model.decoder.dropout_fc(sent_vecs.to(concept_ids.device))
+                    logits = model.decoder.fc(concat)
+
                     loss = loss_func(logits, labels)
 
                     loss.backward()
@@ -280,7 +281,7 @@ def train(args):
 
                         learning_rate = scheduler.get_lr()[0]
                         bar.set_postfix({
-                            'loss/train': str(round(total_loss, 6)),
+                            'loss/train': str(total_loss),
                             'lr': str(learning_rate),
                             'step': str(global_step)
                         })
@@ -301,10 +302,10 @@ def train(args):
 
                 bar.set_postfix({
                     'step': str(global_step),
-                    'loss/train': str(round(total_loss, 4)),
-                    'acc/train': str(round(train_acc, 4)),
-                    'acc/dev': str(round(dev_acc, 4)),
-                    'acc/test': str(round(test_acc, 4))
+                    'loss/train': str(total_loss),
+                    'acc/train': str(train_acc),
+                    'acc/dev': str(dev_acc),
+                    'acc/test': str(test_acc)
                 })
 
                 summary_writer.add_scalar('accuracy/train', train_acc, global_step=global_step)
@@ -326,109 +327,6 @@ def train(args):
     print('\ntraining ends in {} steps'.format(global_step))
     print('best dev acc: {:.4f} (at epoch {})'.format(best_dev_acc, best_dev_epoch))
     print('final test acc: {:.4f}'.format(final_test_acc))
-
-
-def eval(args):
-    model_path = os.path.join(args.save_dir, 'model.pt')
-    model, old_args = torch.load(model_path)
-    device = torch.device("cuda:0" if torch.cuda.is_available() and args.cuda else "cpu")
-    model.to(device)
-    model.eval()
-
-    use_contextualized = 'lm' in old_args.ent_emb
-    dataset = LMGraphRelationNetDataLoader(old_args.train_statements, old_args.train_adj,
-                                           old_args.dev_statements, old_args.dev_adj,
-                                           old_args.test_statements, old_args.test_adj,
-                                           batch_size=args.batch_size, eval_batch_size=args.eval_batch_size, device=(device, device),
-                                           model_name=old_args.encoder,
-                                           max_node_num=old_args.max_node_num, max_seq_length=old_args.max_seq_len,
-                                           is_inhouse=old_args.inhouse, inhouse_train_qids_path=old_args.inhouse_train_qids, use_contextualized=use_contextualized,
-                                           train_embs_path=old_args.train_embs, dev_embs_path=old_args.dev_embs, test_embs_path=old_args.test_embs,
-                                           subsample=old_args.subsample, format=old_args.format)
-
-    print()
-    print("***** runing evaluation *****")
-    print(f'| dataset: {old_args.dataset} | num_dev: {dataset.dev_size()} | num_test: {dataset.test_size()} | save_dir: {args.save_dir} |')
-    dev_acc = evaluate_accuracy(dataset.dev(), model)
-    test_acc = evaluate_accuracy(dataset.test(), model) if dataset.test_size() else 0.0
-    print("***** evaluation done *****")
-    print()
-    print(f'| dev_accuracy: {dev_acc} | test_acc: {test_acc} |')
-
-
-def pred(args):
-    raise NotImplementedError()
-
-
-def decode(args):
-    model_path = os.path.join(args.save_dir, 'model.pt')
-    model, old_args = torch.load(model_path)
-    device = torch.device("cuda:0" if torch.cuda.is_available() and args.cuda else "cpu")
-    model.to(device)
-    model.eval()
-
-    statement_dic = {}
-    for statement_path in (old_args.train_statements, old_args.dev_statements, old_args.test_statements):
-        statement_dic.update(load_statement_dict(statement_path))
-
-    use_contextualized = 'lm' in old_args.ent_emb
-    dataset = LMGraphRelationNetDataLoader(old_args.train_statements, old_args.train_adj,
-                                           old_args.dev_statements, old_args.dev_adj,
-                                           old_args.test_statements, old_args.test_adj,
-                                           batch_size=args.batch_size, eval_batch_size=args.eval_batch_size, device=(device, device),
-                                           model_name=old_args.encoder,
-                                           max_node_num=old_args.max_node_num, max_seq_length=old_args.max_seq_len,
-                                           is_inhouse=old_args.inhouse, inhouse_train_qids_path=old_args.inhouse_train_qids, use_contextualized=use_contextualized,
-                                           train_embs_path=old_args.train_embs, dev_embs_path=old_args.dev_embs, test_embs_path=old_args.test_embs,
-                                           subsample=old_args.subsample, format=old_args.format)
-
-    with open(args.cpnet_vocab_path, 'r', encoding='utf-8') as fin:
-        id2concept = [w.strip() for w in fin]
-
-    def path_ids_to_text(path_ids):
-        assert len(path_ids) % 2 == 1
-        res = []
-        for p in range(len(path_ids)):
-            if p % 2 == 0:  # entity
-                res.append(id2concept[path_ids[p].item()])
-            else:  # relationi
-                rid = path_ids[p].item()
-                if rid < len(merged_relations):
-                    res.append('<--[{}]---'.format(merged_relations[rid]))
-                else:
-                    res.append('---[{}]--->'.format(merged_relations[rid - len(merged_relations)]))
-        return ' '.join(res)
-
-    print()
-    print("***** decoding *****")
-    print(f'| dataset: {old_args.dataset} | num_dev: {dataset.dev_size()} | num_test: {dataset.test_size()} | save_dir: {args.save_dir} |')
-    model.eval()
-    for eval_set, filename in zip([dataset.dev(), dataset.test()], ['decode_dev.txt', 'decode_test.txt']):
-        outputs = []
-        with torch.no_grad():
-            for qids, labels, *input_data in tqdm(eval_set):
-                logits, path_ids, path_lengths = model.decode(*input_data)
-                predictions = logits.argmax(1)
-                for i, (qid, label, pred) in enumerate(zip(qids, labels, predictions)):
-                    outputs.append('*' * 60)
-                    outputs.append('id: {}'.format(qid))
-                    outputs.append('question: {}'.format(statement_dic[qid]['question']))
-                    outputs.append('answer: {}'.format(statement_dic[qid]['answers'][label.item()]))
-                    outputs.append('prediction: {}'.format(statement_dic[qid]['answers'][pred.item()]))
-                    for j, answer in enumerate(statement_dic[qid]['answers']):
-                        path = path_ids[i, j, :path_lengths[i, j]]
-                        outputs.append('{:25} {}'.format('[{}. {}]{}{}'.format(chr(ord('A') + j),
-                                                                               answer,
-                                                                               '*' if j == label else '',
-                                                                               '^' if j == pred else ''),
-                                                         path_ids_to_text(path)))
-        output_path = os.path.join(args.save_dir, filename)
-        with open(output_path, 'w') as fout:
-            for line in outputs:
-                fout.write(line + '\n')
-        print(f'outputs saved to {output_path}')
-    print("***** done *****")
-    print()
 
 
 if __name__ == '__main__':
