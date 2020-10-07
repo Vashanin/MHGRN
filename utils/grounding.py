@@ -234,7 +234,6 @@ def hard_ground(nlp, sent, cpnet_vocab):
 
 
 def match_mentioned_concepts(sents, answers, num_processes):
-    res = []
     with Pool(num_processes) as p:
         res = list(tqdm(p.imap(ground_qa_pair, zip(sents, answers)),
                         total=len(sents),
@@ -242,58 +241,59 @@ def match_mentioned_concepts(sents, answers, num_processes):
     return res
 
 
+def prune_qa_pair(inputs):
+    item, cpnet_vocab = inputs
+    qc = item["qc"]
+    prune_qc = []
+    for c in qc:
+        if c[-2:] == "er" and c[:-2] in qc:
+            continue
+        if c[-1:] == "e" and c[:-1] in qc:
+            continue
+        have_stop = False
+        # remove all concepts having stopwords, including hard-grounded ones
+        for t in c.split("_"):
+            if t in nltk_stopwords:
+                have_stop = True
+        if not have_stop and c in cpnet_vocab:
+            prune_qc.append(c)
+
+    ac = item["ac"]
+    prune_ac = []
+    for c in ac:
+        if c[-2:] == "er" and c[:-2] in ac:
+            continue
+        if c[-1:] == "e" and c[:-1] in ac:
+            continue
+        all_stop = True
+        for t in c.split("_"):
+            if t not in nltk_stopwords:
+                all_stop = False
+        if not all_stop and c in cpnet_vocab:
+            prune_ac.append(c)
+
+    try:
+        assert len(prune_ac) > 0 and len(prune_qc) > 0
+    except Exception as e:
+        pass
+
+    item["qc"] = prune_qc
+    item["ac"] = prune_ac
+
+    return item
+
+
 # To-do: examine prune
-def prune(data, cpnet_vocab_path):
+def prune(data, cpnet_vocab_path, num_processes):
     # reload cpnet_vocab
     with open(cpnet_vocab_path, "r", encoding="utf8") as fin:
         cpnet_vocab = [l.strip() for l in fin]
 
-    prune_data = []
-    for item in tqdm(data, desc="pruning:"):
-        qc = item["qc"]
-        prune_qc = []
-        for c in qc:
-            if c[-2:] == "er" and c[:-2] in qc:
-                continue
-            if c[-1:] == "e" and c[:-1] in qc:
-                continue
-            have_stop = False
-            # remove all concepts having stopwords, including hard-grounded ones
-            for t in c.split("_"):
-                if t in nltk_stopwords:
-                    have_stop = True
-            if not have_stop and c in cpnet_vocab:
-                prune_qc.append(c)
+    with Pool(num_processes) as p:
+        prune_data = list(tqdm(p.imap(prune_qa_pair, zip(data, [cpnet_vocab] * len(cpnet_vocab))),
+                               total=len(data),
+                               desc="pruning:"))
 
-        ac = item["ac"]
-        prune_ac = []
-        for c in ac:
-            if c[-2:] == "er" and c[:-2] in ac:
-                continue
-            if c[-1:] == "e" and c[:-1] in ac:
-                continue
-            all_stop = True
-            for t in c.split("_"):
-                if t not in nltk_stopwords:
-                    all_stop = False
-            if not all_stop and c in cpnet_vocab:
-                prune_ac.append(c)
-
-        try:
-            assert len(prune_ac) > 0 and len(prune_qc) > 0
-        except Exception as e:
-            pass
-            # print("In pruning")
-            # print(prune_qc)
-            # print(prune_ac)
-            # print("original:")
-            # print(qc)
-            # print(ac)
-            # print()
-        item["qc"] = prune_qc
-        item["ac"] = prune_ac
-
-        prune_data.append(item)
     return prune_data
 
 
@@ -327,7 +327,7 @@ def ground(statement_path, cpnet_vocab_path, pattern_path, output_path, num_proc
             answers.append(ans)
 
     res = match_mentioned_concepts(sents, answers, num_processes)
-    res = prune(res, cpnet_vocab_path)
+    res = prune(res, cpnet_vocab_path, num_processes)
 
     # check_path(output_path)
     with open(output_path, 'w') as fout:
