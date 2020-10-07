@@ -291,9 +291,9 @@ def prune(data, cpnet_vocab_path, num_processes):
         cpnet_vocab = [l.strip() for l in fin]
 
     with Pool(num_processes) as p:
-        prune_data = list(tqdm(p.imap(prune_qa_pair, zip(data, [cpnet_vocab] * len(cpnet_vocab))),
+        prune_data = list(tqdm(p.imap(prune_qa_pair, zip(data, [cpnet_vocab] * len(data))),
                                total=len(data),
-                               desc="pruning:"))
+                               desc="mp pruning:"))
 
     return prune_data
 
