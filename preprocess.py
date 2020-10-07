@@ -155,9 +155,9 @@ def main():
             #           output_paths['graph']['patterns'].format(graph=args.graph))},
         ],
         'dataset': [
-            {'func': make_word_vocab,
-             'args': ((output_paths['dataset']['statement']['train'].format(dataset=args.dataset),),
-                      output_paths['dataset']['statement']['vocab'].format(dataset=args.dataset))},
+            # {'func': make_word_vocab,
+            #  'args': ((output_paths['dataset']['statement']['train'].format(dataset=args.dataset),),
+            #           output_paths['dataset']['statement']['vocab'].format(dataset=args.dataset))},
 
             # Співставляються слова які є ентіті ConceptNet графу зі словами які знаходяться в реченні.
             # Виділяється окремо ентіті з запитання та ентіті з відповіді, куди потрапляють всі слова які присутні в

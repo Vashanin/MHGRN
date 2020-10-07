@@ -1,3 +1,4 @@
+import os
 from multiprocessing import Pool
 import spacy
 from spacy.matcher import Matcher
@@ -303,30 +304,40 @@ def ground(statement_path, cpnet_vocab_path, pattern_path, output_path, num_proc
         PATTERN_PATH = pattern_path
         CPNET_VOCAB = load_cpnet_vocab(cpnet_vocab_path)
 
-    sents = []
-    answers = []
-    with open(statement_path, 'r') as fin:
-        lines = [line for line in fin]
+    if not os.path.exists(output_path + '.temp'):
+        sents = []
+        answers = []
+        with open(statement_path, 'r') as fin:
+            lines = [line for line in fin]
 
-    if debug:
-        lines = lines[192:195]
-        print(len(lines))
-    for line in lines:
-        if line == "":
-            continue
-        j = json.loads(line)
-        for statement in j["statements"]:
-            sents.append(statement["statement"])
-        for answer in j["question"]["choices"]:
-            ans = answer['text']
-            # ans = " ".join(answer['text'].split("_"))
-            try:
-                assert all([i != "_" for i in ans])
-            except Exception:
-                print(ans)
-            answers.append(ans)
+        if debug:
+            lines = lines[192:195]
+            print(len(lines))
+        for line in lines:
+            if line == "":
+                continue
+            j = json.loads(line)
+            for statement in j["statements"]:
+                sents.append(statement["statement"])
+            for answer in j["question"]["choices"]:
+                ans = answer['text']
+                # ans = " ".join(answer['text'].split("_"))
+                try:
+                    assert all([i != "_" for i in ans])
+                except Exception:
+                    print(ans)
+                answers.append(ans)
 
-    res = match_mentioned_concepts(sents, answers, num_processes)
+        res = match_mentioned_concepts(sents, answers, num_processes)
+        print(f'save buffered mentioned concepts to the {output_path}.temp')
+        with open(output_path + '.temp', 'w') as fout:
+            for dic in res:
+                fout.write(json.dumps(dic) + '\n')
+    else:
+        print(f'read buffered mentioned concepts from the {output_path}.temp')
+        with open(output_path + '.temp') as fin:
+            res = [json.loads(line) for line in fin.readlines()]
+
     res = prune(res, cpnet_vocab_path, num_processes)
 
     # check_path(output_path)
@@ -336,22 +347,3 @@ def ground(statement_path, cpnet_vocab_path, pattern_path, output_path, num_proc
 
     print(f'grounded concepts saved to {output_path}')
     print()
-
-
-if __name__ == "__main__":
-    create_matcher_patterns("../data/cpnet/concept.txt", "./matcher_res.txt", True)
-    # ground("../data/statement/dev.statement.jsonl", "../data/cpnet/concept.txt", "../data/cpnet/matcher_patterns.json", "./ground_res.jsonl", 10, True)
-
-    # s = "a revolving door is convenient for two direction travel, but it also serves as a security measure at a bank."
-    # a = "bank"
-    # nlp = spacy.load('en_core_web_sm', disable=['ner', 'parser', 'textcat'])
-    # nlp.add_pipe(nlp.create_pipe('sentencizer'))
-    # ans_words = nlp(a)
-    # doc = nlp(s)
-    # ans_matcher = Matcher(nlp.vocab)
-    # print([{'TEXT': token.text.lower()} for token in ans_words])
-    # ans_matcher.add("ok", None, [{'TEXT': token.text.lower()} for token in ans_words])
-    #
-    # matches = ans_matcher(doc)
-    # for a, b, c in matches:
-    #     print(a, b, c)
