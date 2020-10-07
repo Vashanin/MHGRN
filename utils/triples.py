@@ -37,7 +37,36 @@ def load_resources(cpnet_vocab_path, cpnet_relations_path):
     relation2id = {r: i for i, r in enumerate(id2relation)}
 
 
-def generate_triples_from_adj(adj_pk_path, mentioned_cpt_path, cpnet_vocab_path, cpnet_relations_path, triple_path):
+def triples_from_adj_data(inputs):
+    idx, (adj_data, mc) = inputs
+
+    adj, concepts, _, _ = adj_data
+    mapping = {i: (concepts[i]) for i in range(len(concepts))}  # index to corresponding grounded concept id
+    ij = adj.row
+    k = adj.col
+    n_node = adj.shape[1]
+    n_rel = 2 * adj.shape[0] // n_node
+    i, j = ij // n_node, ij % n_node
+
+    j = np.array([mapping[j[idx]] for idx in range(len(j))])
+    k = np.array([mapping[k[idx]] for idx in range(len(k))])
+
+    mc2mc_mask = np.isin(j, mc) & np.isin(k, mc)
+    mc2nmc_mask = np.isin(j, mc) | np.isin(k, mc)
+    others_mask = np.invert(mc2nmc_mask)
+    mc2nmc_mask = ~mc2mc_mask & mc2nmc_mask
+    mc2mc = i[mc2mc_mask], j[mc2mc_mask], k[mc2mc_mask]
+    mc2nmc = i[mc2nmc_mask], j[mc2nmc_mask], k[mc2nmc_mask]
+    others = i[others_mask], j[others_mask], k[others_mask]
+    [i, j, k] = [np.concatenate((a, b, c), axis=-1) for (a, b, c) in zip(mc2mc, mc2nmc, others)]
+
+    triples = (i, j, k)
+    mc_triple_num = len(mc2mc) + len(mc2nmc)
+
+    return triples, mc_triple_num
+
+
+def generate_triples_from_adj(adj_pk_path, mentioned_cpt_path, cpnet_vocab_path, cpnet_relations_path, triple_path, num_processes):
     global concept2id, id2concept, relation2id, id2relation
     if any(x is None for x in [concept2id, id2concept, relation2id, id2relation]):
         load_resources(cpnet_vocab_path, cpnet_relations_path)
@@ -52,38 +81,14 @@ def generate_triples_from_adj(adj_pk_path, mentioned_cpt_path, cpnet_vocab_path,
     n_samples = len(adj_concept_pairs)
     triples = []
     mc_triple_num = []
-    for idx, (adj_data, mc) in tqdm(enumerate(zip(adj_concept_pairs, mentioned_concepts)),
-                                    total=n_samples, desc='loading adj matrices'):
-        adj, concepts, _, _ = adj_data
-        mapping = {i: (concepts[i]) for i in range(len(concepts))}  # index to corresponding grounded concept id
-        ij = adj.row
-        k = adj.col
-        n_node = adj.shape[1]
-        n_rel = 2 * adj.shape[0] // n_node
-        i, j = ij // n_node, ij % n_node
 
-        j = np.array([mapping[j[idx]] for idx in range(len(j))])
-        k = np.array([mapping[k[idx]] for idx in range(len(k))])
-
-        mc2mc_mask = np.isin(j, mc) & np.isin(k, mc)
-        mc2nmc_mask = np.isin(j, mc) | np.isin(k, mc)
-        others_mask = np.invert(mc2nmc_mask)
-        mc2nmc_mask = ~mc2mc_mask & mc2nmc_mask
-        mc2mc = i[mc2mc_mask], j[mc2mc_mask], k[mc2mc_mask]
-        mc2nmc = i[mc2nmc_mask], j[mc2nmc_mask], k[mc2nmc_mask]
-        others = i[others_mask], j[others_mask], k[others_mask]
-        [i, j, k] = [np.concatenate((a, b, c), axis=-1) for (a, b, c) in zip(mc2mc, mc2nmc, others)]
-        triples.append((i, j, k))
-        mc_triple_num.append(len(mc2mc) + len(mc2nmc))
-
-        # i, j, k = np.concatenate((i, i + n_rel // 2), 0), np.concatenate((j, k), 0), np.concatenate((k, j), 0)  # add inverse relations
-        # mask = np.isin(j, mc)
-        # inverted_mask = np.invert(mask)
-        # masked = i[mask], j[mask], k[mask]
-        # mc_triple_num.append(len(masked[0]))
-        # remaining = i[inverted_mask], j[inverted_mask], k[inverted_mask]
-        # [i, j, k] = [np.concatenate((m, r), axis=-1) for (m, r) in zip(masked, remaining)]
-        # triples.append((i, j, k))  # i: relation, j: head, k: tail
+    with Pool(num_processes) as p:
+        res = list(tqdm(p.imap(triples_from_adj_data, enumerate(zip(adj_concept_pairs, mentioned_concepts))),
+                        total=len(adj_concept_pairs),
+                        desc='loading adj matrices'))
+        for v, w in res:
+            triples.append(v)
+            mc_triple_num.append(w)
 
     check_path(triple_path)
     with open(triple_path, 'wb') as fout:
