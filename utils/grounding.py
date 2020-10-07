@@ -284,16 +284,15 @@ def prune_qa_pair(inputs):
     return item
 
 
-# To-do: examine prune
 def prune(data, cpnet_vocab_path, num_processes):
     # reload cpnet_vocab
     with open(cpnet_vocab_path, "r", encoding="utf8") as fin:
         cpnet_vocab = [l.strip() for l in fin]
 
     with Pool(num_processes) as p:
-        prune_data = list(tqdm(p.imap(prune_qa_pair, zip(data, [cpnet_vocab] * len(data))),
+        prune_data = list(tqdm(p.imap(prune_qa_pair, [(item, cpnet_vocab.copy()) for item in data]),
                                total=len(data),
-                               desc="mp pruning:"))
+                               desc=f"mp {num_processes} pruning:"))
 
     return prune_data
 
