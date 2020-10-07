@@ -49,9 +49,9 @@ output_paths = {
     },
     'dataset': {
         'statement': {
-            'train': './data/{dataset}/statement/train.statement.demo.jsonl',
-            'dev': './data/{dataset}/statement/dev.statement.demo.jsonl',
-            'test': './data/{dataset}/statement/test.statement.demo.jsonl',
+            'train': './data/{dataset}/statement/train.statement.jsonl',
+            'dev': './data/{dataset}/statement/dev.statement.jsonl',
+            'test': './data/{dataset}/statement/test.statement.jsonl',
             'vocab': './data/{dataset}/statement/vocab.json',
         },
         'statement-with-ans-pos': {
